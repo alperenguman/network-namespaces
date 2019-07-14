@@ -7,6 +7,46 @@ dns2="103.86.99.100"
 openvpn_config="https://downloads.nordcdn.com/configs/archives/servers/ovpn.zip"
 openvpn_country="us"
 
+function summarize (){
+# Summarize all namespaces
+echo ""
+for i in {1..10}; do echo -n =; done
+echo -n " Real Network "
+for i in {1..10}; do echo -n =; done
+echo -e "\n+ Local IP: $(hostname -I | awk '{print $1}')"
+echo -e "+ Public IP: $(sudo dig -4 TXT +short o-o.myaddr.l.google.com @ns1.google.com | tr -d '"')"
+echo -e "+ DNS resolver: $(sudo nslookup google.com | grep Server | awk '{print $2;}')\n"
+
+
+for i in $(ip netns | awk '{print $1}' | tr '\r\n' ' ')
+do
+
+	current_namespace="$i"
+	for i in {1..10}; do echo -n =; done
+	echo -n " $current_namespace Network Namespace "
+	for i in {1..10}; do echo -n =; done
+	echo -e "\n+ Local IP: $(sudo ip netns exec $current_namespace hostname -I | awk '{print $1}')"
+	echo -e "+ Public IP: $(sudo ip netns exec $current_namespace dig -4 TXT +short o-o.myaddr.l.google.com @ns1.google.com | tr -d '"')"
+	echo -e "+ DNS resolver: $(sudo ip netns exec $current_namespace nslookup google.com | grep Server | awk '{print $2;}')\n"
+done
+}
+
+if [ "$1" == "--summarize" ]
+then
+	summarize
+	set -e
+	exit 0
+	set +e
+fi
+
+if [ "$1" == "--summarize" ]
+then
+	summarize
+	set -e
+	exit 0
+	set +e
+fi
+
 # Get desired network namespace name
 echo -en "\e[93m\e[1mEnter namespace name ($namespace_name): \e[0m"
 read input_namespace
@@ -116,33 +156,13 @@ then
 	sudo wget -nc -P /etc/openvpn/ $openvpn_config
 	sudo unzip -n $(ls /etc/openvpn/*.zip) -d /etc/openvpn/nord 
 	selected_config=$(ls /etc/openvpn/nord/ovpn_udp/$openvpn_country* | sort -R | tail -n 1)
+
+	# TODO: Configure deamon as system service to make sure connection persists across sleep and boot
+
 	sudo ip netns exec $namespace_name openvpn --config $selected_config --daemon
 	echo "Connecting..."
 	sleep 3
 	echo -e "Public IP: $(sudo ip netns exec $namespace_name dig -4 TXT +short o-o.myaddr.l.google.com @ns1.google.com | tr -d '"')\n"
 fi
 
-# Summarize all namespaces
-echo ""
-for i in {1..10}; do echo -n =; done
-echo -n " Real Network "
-for i in {1..10}; do echo -n =; done
-echo -e "\n+ Local IP: $(hostname -I | awk '{print $1}')"
-echo -e "+ Public IP: $(sudo dig -4 TXT +short o-o.myaddr.l.google.com @ns1.google.com | tr -d '"')"
-echo -e "+ DNS resolver: $(sudo nslookup google.com | grep Server | awk '{print $2;}')\n"
-
-
-for i in $(ip netns | awk '{print $1}' | tr '\r\n' ' ')
-do
-
-	current_namespace="$i"
-	for i in {1..10}; do echo -n =; done
-	echo -n " $current_namespace Network Namespace "
-	for i in {1..10}; do echo -n =; done
-	echo -e "\n+ Local IP: $(sudo ip netns exec $current_namespace hostname -I | awk '{print $1}')"
-	echo -e "+ Public IP: $(sudo ip netns exec $current_namespace dig -4 TXT +short o-o.myaddr.l.google.com @ns1.google.com | tr -d '"')"
-	echo -e "+ DNS resolver: $(sudo ip netns exec $current_namespace nslookup google.com | grep Server | awk '{print $2;}')\n"
-done
-
-
-
+summarize
