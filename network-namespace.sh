@@ -10,24 +10,22 @@ openvpn_country="us"
 function summarize (){
 # Summarize all namespaces
 echo ""
-for i in {1..10}; do echo -n =; done
-echo -n " Real Network "
-for i in {1..10}; do echo -n =; done
-echo -e "\n+ Local IP: $(hostname -I | awk '{print $1}')"
-echo -e "+ Public IP: $(sudo dig -4 TXT +short o-o.myaddr.l.google.com @ns1.google.com | tr -d '"')"
-echo -e "+ DNS resolver: $(sudo nslookup google.com | grep Server | awk '{print $2;}')\n"
+title="Real Network"
+echo -en " \e[1m$title\e[0m "
+echo -e "\n Local IP: $(hostname -I | awk '{print $1}')"
+echo -e " Public IP: $(sudo dig -4 TXT +short o-o.myaddr.l.google.com @ns1.google.com | tr -d '"')"
+echo -e " DNS resolver: $(sudo nslookup google.com | grep Server | awk '{print $2;}')\n"
 
 
 for i in $(ip netns | awk '{print $1}' | tr '\r\n' ' ')
 do
 
 	current_namespace="$i"
-	for i in {1..10}; do echo -n =; done
-	echo -n " $current_namespace Network Namespace "
-	for i in {1..10}; do echo -n =; done
-	echo -e "\n+ Local IP: $(sudo ip netns exec $current_namespace hostname -I | awk '{print $1}')"
-	echo -e "+ Public IP: $(sudo ip netns exec $current_namespace dig -4 TXT +short o-o.myaddr.l.google.com @ns1.google.com | tr -d '"')"
-	echo -e "+ DNS resolver: $(sudo ip netns exec $current_namespace nslookup google.com | grep Server | awk '{print $2;}')\n"
+	title="$current_namespace Network Namespace"
+	echo -en " \e[1m$title\e[0m "
+	echo -e "\n Local IP: $(sudo ip netns exec $current_namespace hostname -I | awk '{print $1}')"
+	echo -e " Public IP: $(sudo ip netns exec $current_namespace dig -4 TXT +short o-o.myaddr.l.google.com @ns1.google.com | tr -d '"')"
+	echo -e " DNS resolver: $(sudo ip netns exec $current_namespace nslookup google.com | grep Server | awk '{print $2;}')\n"
 done
 }
 
