@@ -36,15 +36,6 @@ then
 	summarize
 	set -e
 	exit 0
-	set +e
-fi
-
-if [ "$1" == "--summarize" ]
-then
-	summarize
-	set -e
-	exit 0
-	set +e
 fi
 
 # Get desired network namespace name
