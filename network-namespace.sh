@@ -6,6 +6,8 @@ dns1="103.86.96.100"
 dns2="103.86.99.100"
 openvpn_config="https://downloads.nordcdn.com/configs/archives/servers/ovpn.zip"
 openvpn_country="us"
+n=$((200+$(sudo ip netns | wc -l)))
+local_ip_range="10.$n.5"
 
 function summarize (){
 # Summarize all namespaces
@@ -29,7 +31,7 @@ do
 done
 }
 
-if [ "$1" == "--summarize" ]
+if [ "$1" == "--summarize" ] | [ "$1" == "-s" ]
 then
 	summarize
 	set -e
@@ -79,7 +81,7 @@ echo -e "Current network namespaces: \n\e[0m$(sudo ip netns)\n\e[93m\e[1m"
 echo "Adding loopback interface to $namespace_name..."
 echo -e "\e[0m"
 sudo ip netns exec $namespace_name ip link set dev lo up
-sudo ip netns exec $namespace_name ping -c 3 127.0.0.1
+sudo ip netns exec $namespace_name ping -i 0.2 -c 3 127.0.0.1
 echo -e "\e[93m\e[1m"
 echo "Creating veth link..."
 sudo ip link add v-eth-to-$namespace_name type veth peer name v-peer1
@@ -89,15 +91,15 @@ sudo ip link set v-peer1 netns $namespace_name
 
 echo "Setting up IP address of v-eth-to-$namespace_name..."
 
-sudo ip addr add 10.20$(sudo ip netns | wc -l).1.1/24 dev v-eth-to-$namespace_name
+sudo ip addr add $local_ip_range.1/24 dev v-eth-to-$namespace_name
 sudo ip link set v-eth-to-$namespace_name up
 
 echo "Setting up IP address of v-peer1..."
-sudo ip netns exec $namespace_name ip addr add 10.20$(sudo ip netns | wc -l).1.2/24 dev v-peer1
+sudo ip netns exec $namespace_name ip addr add $local_ip_range.2/24 dev v-peer1
 sudo ip netns exec $namespace_name ip link set v-peer1 up
 
 echo "Routing all traffic leaving $namespace_name through v-eth-to-$namespace_name"
-sudo ip netns exec $namespace_name ip route add default via 10.20$(sudo ip netns | wc -l).1.1
+sudo ip netns exec $namespace_name ip route add default via $local_ip_range.1
 
 echo "Configuring shared internet access between host and $namespace_name"
 echo "Enabling IP forwarding"
@@ -113,8 +115,8 @@ then
 	sudo iptables -t nat -F
 fi
 
-echo "Enabling masquerading of 10.20$(sudo ip netns | wc -l).1.0"
-sudo iptables -t nat -A POSTROUTING -s 10.20$(sudo ip netns | wc -l).1.0/255.255.255.0 -o "$default_interface" -j MASQUERADE
+echo "Enabling masquerading of $local_ip_range.0"
+sudo iptables -t nat -A POSTROUTING -s $local_ip_range.0/255.255.255.0 -o "$default_interface" -j MASQUERADE
 
 echo "Allowing forwarding between $default_interface and v-eth-to-$namespace_name"
 sudo iptables -A FORWARD -i "$default_interface" -o v-eth-to-$namespace_name -j ACCEPT
@@ -122,7 +124,7 @@ sudo iptables -A FORWARD -o "$default_interface" -i v-eth-to-$namespace_name -j 
 
 echo "Pinging external host from $namespace_name to test connectivity..."
 echo -e "\e[0m"
-sudo ip netns exec $namespace_name ping -c 3 8.8.8.8
+sudo ip netns exec $namespace_name ping -i 0.2 -c 3 8.8.8.8
 
 
 # Set up DNS for namespace
