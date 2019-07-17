@@ -10,25 +10,34 @@ n=$((200+$(sudo ip netns | wc -l)))
 local_ip_range="10.$n.5"
 
 function summarize (){
-# Summarize all namespaces
-echo ""
-title="Real Network"
-echo -en " \e[1m$title\e[0m "
-echo -e "\n Local IP: $(hostname -I | awk '{print $1}')"
-echo -e " Public IP: $(sudo dig -4 TXT +short o-o.myaddr.l.google.com @ns1.google.com | tr -d '"')"
-echo -e " DNS resolver: $(sudo nslookup google.com | grep Server | awk '{print $2;}')\n"
-
-
-for i in $(ip netns | awk '{print $1}' | tr '\r\n' ' ')
-do
-
-	current_namespace="$i"
-	title="$current_namespace Network Namespace"
+	# Summarize all namespaces
+	echo ""
+	title="Real Network"
 	echo -en " \e[1m$title\e[0m "
-	echo -e "\n Local IP: $(sudo ip netns exec $current_namespace hostname -I | awk '{print $1}')"
-	echo -e " Public IP: $(sudo ip netns exec $current_namespace dig -4 TXT +short o-o.myaddr.l.google.com @ns1.google.com | tr -d '"')"
-	echo -e " DNS resolver: $(sudo ip netns exec $current_namespace nslookup google.com | grep Server | awk '{print $2;}')\n"
-done
+	echo -e "\n Local IP: $(hostname -I | awk '{print $1}')"
+	echo -e " Public IP: $(sudo dig -4 TXT +short o-o.myaddr.l.google.com @ns1.google.com | tr -d '"')"
+	echo -e " DNS resolver: $(sudo nslookup google.com | grep Server | awk '{print $2;}')\n"
+
+	for i in $(ip netns | awk '{print $1}' | tr '\r\n' ' ')
+	do
+		current_namespace="$i"
+		title="$current_namespace Network Namespace"
+		echo -en " \e[1m$title\e[0m "
+		echo -e "\n Local IP: $(sudo ip netns exec $current_namespace hostname -I | awk '{print $1}')"
+		echo -e " Public IP: $(sudo ip netns exec $current_namespace dig -4 TXT +short o-o.myaddr.l.google.com @ns1.google.com | tr -d '"')"
+		echo -e " DNS resolver: $(sudo ip netns exec $current_namespace nslookup google.com | grep Server | awk '{print $2;}')\n"
+	done
+	}
+
+function kill_openvpn (){
+	for i in $(sudo ip netns pid $1)
+	do
+		if [ "$(ps -p $i -o comm=)" == "openvpn" ]
+		then
+			echo "Killing openvpn with pid: $i"
+			sudo kill $i
+		fi
+	done 
 }
 
 if [ "$1" == "--summarize" ] | [ "$1" == "-s" ]
@@ -57,7 +66,13 @@ else
     echo -en "\e[93m\e[1m$namespace_name already exists, would you like to delete and recreate it? (y/N): \e[0m"
     read answer
     set -e
-    [ "$answer" == "y" ] && sudo ip netns del "$namespace_name" || (echo "exiting..." & exit 1)
+    if [ "$answer" == "y" ]
+    then
+    	kill_openvpn $namespace_name && sudo ip netns del "$namespace_name" 
+    else
+    	echo "exiting..."
+    	exit 1
+    fi
     set +e
 fi
 
@@ -154,6 +169,9 @@ then
 	echo "Connecting..."
 	sleep 3
 	echo -e "Public IP: $(sudo ip netns exec $namespace_name dig -4 TXT +short o-o.myaddr.l.google.com @ns1.google.com | tr -d '"')\n"
+	echo "Changing default route to VPN..."
+	sudo ip netns exec $namespace_name ip route del default
+	sudo ip netns exec $namespace_name ip route add default via $(sudo ip netns exec $namespace_name ip route | grep 0.0.0.0 | awk '{print $3}')
 fi
 
 summarize
