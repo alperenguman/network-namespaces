@@ -8,6 +8,7 @@ openvpn_config="https://downloads.nordcdn.com/configs/archives/servers/ovpn.zip"
 openvpn_country="us"
 n=$((200+$(sudo ip netns | wc -l)))
 local_ip_range="10.$n.5"
+auth_dir="/tmp/openvpn/temp_dir"
 
 function summarize (){
 	# Summarize all namespaces
@@ -25,7 +26,7 @@ function summarize (){
 		echo -en " \e[1m$title\e[0m "
 		echo -e "\n Local IP: $(sudo ip netns exec $current_namespace hostname -I | awk '{print $1}')"
 		echo -e " Public IP: $(sudo ip netns exec $current_namespace dig -4 TXT +short o-o.myaddr.l.google.com @ns1.google.com | tr -d '"')"
-		echo -e " DNS resolver: $(sudo ip netns exec $current_namespace nslookup google.com | grep Server | awk '{print $2;}')\n"
+		echo -e " DNS resolver: $(sudo ip netns exec $current_namespace nslookup -timeout=1 google.com | grep Server | awk '{print $2;}')\n"
 	done
 	}
 
@@ -40,9 +41,18 @@ function kill_openvpn (){
 	done 
 }
 
-if [ "$1" == "--summarize" ] | [ "$1" == "-s" ]
+if [ "$1" == "--summarize" ] || [ "$1" == "-s" ];
 then
 	summarize
+	set -e
+	exit 0
+fi
+
+if [ "$1" == "-reset" ] || [ "$1" == "-r" ];
+then
+	gpg -d -o $auth_dir/auth.txt $auth_dir/auth.txt.asc
+	sudo /usr/bin/killall -s HUP openvpn &&
+	sudo rm "$auth_dir/auth.txt"
 	set -e
 	exit 0
 fi
@@ -68,7 +78,7 @@ else
     set -e
     if [ "$answer" == "y" ]
     then
-    	kill_openvpn $namespace_name && sudo ip netns del "$namespace_name" 
+    	kill_openvpn $namespace_name && sudo ip netns del "$namespace_name" && sudo ip link delete v-eth-to-$namespace_name 
     else
     	echo "exiting..."
     	exit 1
@@ -150,9 +160,9 @@ sudo mkdir -p "/etc/netns/$namespace_name"
 sudo cp /etc/resolv.conf "/etc/netns/$namespace_name/"
 
 # Download & set up openvpn config
-echo -en "Setup Openvpn for $namespace_name? (y/N): \e[0m"
+echo -en "Setup Openvpn for $namespace_name? (Y/n): \e[0m"
 read answer
-if [ "$answer" == "y" ]
+if [ "$answer" != "n" ] && [ "$answer" != "N" ];
 then
 	if [ -z "$(sudo which openvpn)" ]
 	then
@@ -161,17 +171,32 @@ then
 	sudo bash -c "echo -e 'nameserver $dns1\nnameserver $dns2' > '/etc/netns/$namespace_name/resolv.conf'"
 	sudo wget -nc -P /etc/openvpn/ $openvpn_config
 	sudo unzip -n $(ls /etc/openvpn/*.zip) -d /etc/openvpn/nord 
+	
+	if [ ! -f "$auth_dir/auth.txt.asc" ]
+	then
+		sudo mkdir -p "$auth_dir"
+		sudo mount -t tmpfs -o size=1m tmpfs "$auth_dir"
+		echo -n "Enter username: "
+		read username
+		pass="$(sudo /lib/cryptsetup/askpass "Enter password:")"
+		sudo sh -c "echo '$username\n$pass' > $auth_dir/auth.txt"
+		gpg -a -e -R $username $auth_dir/auth.txt
+	else
+		gpg -d -o $auth_dir/auth.txt $auth_dir/auth.txt.asc
+	fi
+
 	selected_config=$(ls /etc/openvpn/nord/ovpn_udp/$openvpn_country* | sort -R | tail -n 1)
 
 	# TODO: Configure deamon as system service to make sure connection persists across sleep and boot
 
-	sudo ip netns exec $namespace_name openvpn --config $selected_config --daemon
+	sudo ip netns exec $namespace_name openvpn --config $selected_config --auth-user-pass "$auth_dir/auth.txt" --daemon
 	echo "Connecting..."
 	sleep 3
 	echo -e "Public IP: $(sudo ip netns exec $namespace_name dig -4 TXT +short o-o.myaddr.l.google.com @ns1.google.com | tr -d '"')\n"
 	echo "Changing default route to VPN..."
 	sudo ip netns exec $namespace_name ip route del default
 	sudo ip netns exec $namespace_name ip route add default via $(sudo ip netns exec $namespace_name ip route | grep 0.0.0.0 | awk '{print $3}')
+	sudo rm "$auth_dir/auth.txt"
 fi
 
 summarize
