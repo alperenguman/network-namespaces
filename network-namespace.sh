@@ -48,12 +48,25 @@ then
 	exit 0
 fi
 
-if [ "$1" == "-reset" ] || [ "$1" == "-r" ];
+if [ "$1" == "--reset" ] || [ "$1" == "-r" ];
 then
 	gpg -d -o $auth_dir/auth.txt $auth_dir/auth.txt.asc
 	sudo /usr/bin/killall -s HUP openvpn &&
 	sudo rm "$auth_dir/auth.txt"
 	set -e
+	exit 0
+fi
+
+if [ "$1" == "--delete" ] || [ "$1" == "-d" ];
+then
+	if [ "$2" == "" ];
+	then
+		echo "No namespace name provided, exiting..."
+		exit 0
+	fi
+	kill_openvpn $2 && sudo ip netns del "$2" && sudo ip link delete v-eth-to-$2
+	echo "Namespace '$2' successfully killed!"
+	summarize
 	exit 0
 fi
 
@@ -186,12 +199,10 @@ then
 	fi
 
 	selected_config=$(ls /etc/openvpn/nord/ovpn_udp/$openvpn_country* | sort -R | tail -n 1)
-
 	# TODO: Configure deamon as system service to make sure connection persists across sleep and boot
-
 	sudo ip netns exec $namespace_name openvpn --config $selected_config --auth-user-pass "$auth_dir/auth.txt" --daemon
-	echo "Connecting..."
-	sleep 3
+	echo -e "\nConnecting OpenVPN to $selected_config..."
+	sleep 5
 	echo -e "Public IP: $(sudo ip netns exec $namespace_name dig -4 TXT +short o-o.myaddr.l.google.com @ns1.google.com | tr -d '"')\n"
 	echo "Changing default route to VPN..."
 	sudo ip netns exec $namespace_name ip route del default
